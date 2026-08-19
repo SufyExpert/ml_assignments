@@ -34,11 +34,13 @@ from fastapi.staticfiles import StaticFiles
 # from the project root.
 ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT_DIR))
+sys.path.insert(0, str(ROOT_DIR / "src"))  # for engineer_features
 
 from monitoring.monitoring import stats, logger  # noqa: E402
 from api.schemas import (  # noqa: E402
     PatientFeatures, PredictionResponse, HealthResponse, HomeResponse,
 )
+from train import engineer_features  # noqa: E402
 
 MODEL_PATH = ROOT_DIR / "model" / "model.joblib"
 METADATA_PATH = ROOT_DIR / "model" / "metadata.json"
@@ -150,15 +152,21 @@ def predict(patient: PatientFeatures):
 
     t0 = time.perf_counter()
     try:
-        # Build a one-row DataFrame with exactly the raw column names the
-        # pipeline was trained on. The pipeline's own preprocessor handles
-        # imputing, scaling, and encoding internally -- nothing is
-        # reimplemented here.
+        # Build a one-row DataFrame from the validated patient fields.
+        # Pydantic has already guaranteed these are exactly the 10 raw
+        # patient columns the model was trained on, so no column filtering
+        # is needed here. We then derive the engineered features in the same
+        # way train.py did before passing the row to the pipeline.
         input_df = pd.DataFrame([patient.model_dump()])
-        input_df = input_df[metadata["raw_feature_names"]]
+        input_df = engineer_features(input_df)  # adds age_glucose, age_hyper, bmi_category
 
-        prediction = int(pipeline.predict(input_df)[0])
+        # Use predict_proba + the saved threshold instead of pipeline.predict()
+        # which is hardwired to 0.5.  With ~5 % stroke prevalence the model's
+        # probabilities are mostly well below 0.5, so the default threshold
+        # would predict no-stroke for every patient.
+        threshold = metadata.get("decision_threshold", 0.5)
         probability = float(pipeline.predict_proba(input_df)[0][1])
+        prediction = int(probability >= threshold)
     except Exception as exc:
         stats.record_failure(reason=str(exc), model_version=model_version)
         raise

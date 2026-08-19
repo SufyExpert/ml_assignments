@@ -1,7 +1,7 @@
 {
   "model_version": "1.0",
   "algorithm": "RandomForestClassifier",
-  "training_date_utc": "2026-08-19T17:07:23.174969+00:00",
+  "training_date_utc": "2026-08-19T17:14:50.825595+00:00",
   "random_seed": 42,
   "target_column": "stroke",
   "raw_feature_names": [
@@ -57,7 +57,7 @@
       "classifier__n_estimators": 312
     },
     "best_cv_roc_auc": 0.8352910759721528,
-    "tuning_time_sec": 61.696306668000034
+    "tuning_time_sec": 59.68259478500113
   },
   "validation_metrics": {
     "accuracy": 0.8718199608610567,

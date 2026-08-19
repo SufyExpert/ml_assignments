@@ -21,6 +21,27 @@
       "original_std": 7.556,
       "shifted_std": 7.556,
       "mean_shift_pct": 17.4
+    },
+    "age_glucose": {
+      "original_mean": 4773.048,
+      "shifted_mean": 4773.048,
+      "original_std": 3970.017,
+      "shifted_std": 3970.017,
+      "mean_shift_pct": 0.0
+    },
+    "age_hyper": {
+      "original_mean": 6.255,
+      "shifted_mean": 6.255,
+      "original_std": 19.335,
+      "shifted_std": 19.335,
+      "mean_shift_pct": 0.0
+    },
+    "bmi_category": {
+      "original_mean": 1.973,
+      "shifted_mean": 1.973,
+      "original_std": 0.956,
+      "shifted_std": 0.956,
+      "mean_shift_pct": 0.0
     }
   },
   "categorical_feature_comparison": {
@@ -106,25 +127,25 @@
     }
   },
   "prediction_distribution_comparison": {
-    "original_predicted_stroke_rate": 0.0,
-    "shifted_predicted_stroke_rate": 0.001,
-    "original_mean_probability": 0.047,
-    "shifted_mean_probability": 0.1032
+    "original_predicted_stroke_rate": 0.1008,
+    "shifted_predicted_stroke_rate": 0.1419,
+    "original_mean_probability": 0.1718,
+    "shifted_mean_probability": 0.2377
   },
   "performance_comparison": {
     "original_test_set": {
-      "accuracy": 0.9511,
-      "precision": 0.0,
-      "recall": 0.0,
-      "f1": 0.0,
-      "roc_auc": 0.8388
+      "accuracy": 0.8973,
+      "precision": 0.233,
+      "recall": 0.48,
+      "f1": 0.3137,
+      "roc_auc": 0.8242
     },
     "shifted_data": {
-      "accuracy": 0.9501,
-      "precision": 0.0,
-      "recall": 0.0,
-      "f1": 0.0,
-      "roc_auc": 0.8175
+      "accuracy": 0.862,
+      "precision": 0.1862,
+      "recall": 0.54,
+      "f1": 0.2769,
+      "roc_auc": 0.8211
     }
   }
 }
