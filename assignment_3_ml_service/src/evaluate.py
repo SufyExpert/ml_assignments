@@ -20,11 +20,16 @@ import json
 from pathlib import Path
 
 import joblib
+import numpy as np
 import pandas as pd
 from sklearn.metrics import (
     accuracy_score, confusion_matrix, f1_score, precision_score,
     recall_score, roc_auc_score,
 )
+
+# Re-use the same feature engineering function used at training time so
+# evaluate.py always produces the same columns the pipeline expects.
+from train import engineer_features
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 MODEL_PATH = ROOT_DIR / "model" / "model.joblib"
@@ -54,6 +59,12 @@ def main():
 
     test_df = pd.read_csv(TEST_SET_PATH)
     target_col = metadata["target_column"]
+
+    # Apply the same feature engineering that was used during training.
+    # The test set was saved with the raw columns, so we derive the
+    # engineered features here before passing it to the pipeline.
+    test_df = engineer_features(test_df)
+
     X_test = test_df.drop(columns=[target_col])
     y_test = test_df[target_col]
 
@@ -68,6 +79,14 @@ def main():
     # pipeline. No fit or fit_transform is called on test data here.
     y_pred = pipeline.predict(X_test)
     y_proba = pipeline.predict_proba(X_test)[:, 1]
+
+    # Use the threshold chosen during training (on the validation set) rather
+    # than the default 0.5.  The dataset has ~5 % stroke cases, so the raw
+    # probabilities are mostly well below 0.5 and the default threshold
+    # silently predicts no-stroke for every patient.
+    threshold = metadata.get("decision_threshold", 0.5)
+    print(f"Using decision threshold from metadata: {threshold:.4f}")
+    y_pred = (y_proba >= threshold).astype(int)
 
     metrics = {
         "accuracy": accuracy_score(y_test, y_pred),

@@ -2,16 +2,16 @@
   "model_version": "1.0",
   "evaluated_rows": 1022,
   "metrics": {
-    "accuracy": 0.9510763209393346,
-    "precision": 0.0,
-    "recall": 0.0,
-    "f1": 0.0,
-    "roc_auc": 0.8388477366255145
+    "accuracy": 0.7886497064579256,
+    "precision": 0.1598360655737705,
+    "recall": 0.78,
+    "f1": 0.2653061224489796,
+    "roc_auc": 0.8306378600823046
   },
   "confusion_matrix": {
-    "true_negative": 972,
-    "false_positive": 0,
-    "false_negative": 50,
-    "true_positive": 0
+    "true_negative": 767,
+    "false_positive": 205,
+    "false_negative": 11,
+    "true_positive": 39
   }
 }

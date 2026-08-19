@@ -5,17 +5,18 @@ This script does the full training job for the stroke-risk model that
 Assignment 3 turns into a service:
 
 1. Load and clean the raw data (same cleaning logic as Assignment 1).
-2. Split it into train / validation / test (60 / 20 / 20, stratified).
-3. Build ONE scikit-learn Pipeline that contains both preprocessing
-   (ColumnTransformer) and the model, so preprocessing and modeling are
-   never separated.
-4. Tune the model's hyperparameters with RandomizedSearchCV, using
-   cross-validation on the training set only.
-5. Check the tuned model once on the validation set (a true held-out
-   check, separate from the cross-validation score reported by the
-   search itself).
-6. Evaluate the final model exactly once on the untouched test set.
-7. Persist the complete fitted Pipeline (preprocessing + model together)
+2. Engineer new features to give the model stronger signal on the rare
+   stroke class (age×glucose interaction, age×hypertension, BMI bins).
+3. Split it into train / validation / test (60 / 20 / 20, stratified).
+4. Build ONE scikit-learn Pipeline that contains preprocessing and the
+   model. class_weight="balanced" handles the class imbalance by
+   penalising missed stroke cases proportionally to their rarity.
+5. Tune the model's hyperparameters with RandomizedSearchCV, scoring on
+   ROC-AUC (stable on imbalanced CV folds).
+6. Sweep the decision threshold on the validation set to maximise F1,
+   then freeze it before touching the test set.
+7. Evaluate the final model exactly once on the untouched test set.
+8. Persist the complete fitted Pipeline (preprocessing + model together)
    to model/model.joblib, and write model/metadata.json alongside it.
 
 Run it with:
@@ -79,16 +80,49 @@ def load_and_clean_data(path: Path) -> pd.DataFrame:
     return df
 
 
+def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Add domain-informed interaction features.
+
+    These are computed BEFORE the train/val/test split so all three sets
+    get the same columns, but the values in the val/test sets are derived
+    purely from those rows -- no information from train leaks through.
+
+    Features added
+    --------------
+    age_glucose   : age * avg_glucose_level
+                    Older patients with high blood sugar have a
+                    disproportionately elevated stroke risk, so the product
+                    captures a synergistic interaction the model can't learn
+                    from the two raw columns alone.
+    age_hyper     : age * hypertension (0/1 flag)
+                    Hypertension risk compounds with age; this product is
+                    non-zero only for hypertensive patients and grows with age.
+    bmi_category  : ordinal BMI bin (0=underweight, 1=normal, 2=overweight,
+                    3=obese).  NaN bmi → NaN category; SimpleImputer handles
+                    it downstream.
+    """
+    df = df.copy()
+    df["age_glucose"] = df["age"] * df["avg_glucose_level"]
+    df["age_hyper"]   = df["age"] * df["hypertension"]
+    df["bmi_category"] = pd.cut(
+        df["bmi"],
+        bins=[0, 18.5, 25, 30, float("inf")],
+        labels=[0, 1, 2, 3],
+    ).astype("float64")  # float so SimpleImputer's median strategy works
+    return df
+
+
 def build_pipeline(numerical_cols, categorical_cols) -> Pipeline:
     """
-    Build ONE pipeline containing preprocessing + model. Numerical and
-    categorical columns get different preprocessing steps
-    (ColumnTransformer), and everything downstream -- including the
-    classifier -- lives inside the same Pipeline object. This is what lets
-    me call pipeline.fit(X_train) once and then safely call
-    pipeline.predict(X_val) / pipeline.predict(X_test) afterwards: those
-    calls only ever *transform* validation/test data through the
-    already-fitted preprocessing steps. They never re-fit on it.
+    Build ONE pipeline containing preprocessing + model.
+
+    class_weight="balanced" is the single mechanism used to handle the
+    ~5 % stroke / ~95 % no-stroke imbalance.  It tells the forest to weight
+    each class inversely to its frequency, so a missed stroke costs the tree
+    ~20x more than a missed no-stroke.  Combining this with SMOTE would
+    double-correct for the imbalance, pushing the model to over-predict stroke
+    and drop precision/F1, so SMOTE is intentionally omitted here.
     """
     numeric_transformer = Pipeline(steps=[
         ("imputer", SimpleImputer(strategy="median")),
@@ -105,13 +139,14 @@ def build_pipeline(numerical_cols, categorical_cols) -> Pipeline:
         ("cat", categorical_transformer, categorical_cols),
     ])
 
-    # class_weight is tuned below (None vs "balanced"), so I leave it as a
-    # placeholder here -- RandomizedSearchCV will set the real value.
-    model = RandomForestClassifier(random_state=RANDOM_SEED)
+    # class_weight="balanced" penalises missed stroke cases in proportion to
+    # how rare they are.  Without this the search settles on predicting
+    # all-no-stroke, giving recall / F1 of exactly 0.
+    model = RandomForestClassifier(class_weight="balanced", random_state=RANDOM_SEED)
 
     pipeline = Pipeline(steps=[
         ("preprocessor", preprocessor),
-        ("classifier", model),
+        ("classifier",   model),
     ])
     return pipeline
 
@@ -123,6 +158,13 @@ def main():
     df = load_and_clean_data(DATA_PATH)
     print(f"Loaded {df.shape[0]} rows, {df.shape[1]} columns after cleaning.")
     print(f"Missing bmi values after conversion: {df['bmi'].isnull().sum()}")
+
+    print("\n" + "=" * 74)
+    print("STEP 1b: Feature engineering")
+    print("=" * 74)
+    df = engineer_features(df)
+    print("Engineered features added: age_glucose, age_hyper, bmi_category")
+    print(f"Shape after engineering: {df.shape}")
 
     target_col = "stroke"
     X = df.drop(columns=[target_col])
@@ -176,16 +218,18 @@ def main():
     print("best on validation/test in Assignment 1's benchmark once the deep single")
     print("tree overfit and the boosting models struggled to generalize recall.")
     print()
-    print("I score on ROC-AUC, not accuracy, because stroke cases are only ~5% of the")
-    print("data -- a model that always predicts 'no stroke' would score ~95% accuracy")
-    print("while being useless, so accuracy would actively mislead the search.")
+    print("I score on ROC-AUC because it is stable on imbalanced CV folds -- it")
+    print("ranks probability scores across all thresholds, so a model that outputs")
+    print("better-separated probabilities scores higher regardless of class frequency.")
+    print("We then separately sweep the threshold on the held-out validation set to")
+    print("maximise F1, which is what we care about at prediction time.")
 
     param_distributions = {
-        "classifier__n_estimators": randint(100, 500),
-        "classifier__max_depth": [None, 5, 10, 15, 20, 25],
+        "classifier__n_estimators": randint(100, 600),
+        "classifier__max_depth": [None, 5, 10, 15, 20, 25, 30],
         "classifier__min_samples_leaf": randint(1, 10),
         "classifier__max_features": ["sqrt", "log2", None],
-        "classifier__class_weight": [None, "balanced"],
+        # class_weight is fixed to "balanced" in build_pipeline().
     }
 
     cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=RANDOM_SEED)
@@ -193,7 +237,7 @@ def main():
     search = RandomizedSearchCV(
         estimator=pipeline,
         param_distributions=param_distributions,
-        n_iter=25,
+        n_iter=30,
         scoring="roc_auc",
         cv=cv,
         random_state=RANDOM_SEED,
@@ -223,8 +267,27 @@ def main():
     print("=" * 74)
     # This call only transforms X_val through the already-fitted preprocessor
     # inside best_pipeline -- it does NOT call fit or fit_transform on it.
-    y_val_pred = best_pipeline.predict(X_val)
     y_val_proba = best_pipeline.predict_proba(X_val)[:, 1]
+
+    # --- Threshold tuning --------------------------------------------------
+    # The default 0.5 threshold is calibrated for balanced classes.  With
+    # only ~5 % positive cases the model's stroke probabilities are all well
+    # below 0.5, so every sample gets predicted as no-stroke.  We sweep the
+    # threshold on the *validation* set (not the test set) and pick the
+    # value that maximises F1, then freeze it before touching test data.
+    print("\nSweeping decision threshold on validation set to maximise F1...")
+    thresholds = np.linspace(0.01, 0.99, 199)
+    best_thresh, best_val_f1 = 0.5, 0.0
+    for t in thresholds:
+        preds_t = (y_val_proba >= t).astype(int)
+        f1_t = f1_score(y_val, preds_t, zero_division=0)
+        if f1_t > best_val_f1:
+            best_val_f1 = f1_t
+            best_thresh = float(t)
+    print(f"Optimal threshold: {best_thresh:.4f}  (val F1 at that threshold: {best_val_f1:.4f})")
+    # -----------------------------------------------------------------------
+
+    y_val_pred = (y_val_proba >= best_thresh).astype(int)
     val_roc_auc = roc_auc_score(y_val, y_val_proba)
     val_f1 = f1_score(y_val, y_val_pred, zero_division=0)
     val_recall = recall_score(y_val, y_val_pred, zero_division=0)
@@ -242,8 +305,10 @@ def main():
     # Same discipline as above: predict() only transforms X_test through the
     # already-fitted pipeline. No fit_transform call happens on test data
     # anywhere in this script.
-    y_test_pred = best_pipeline.predict(X_test)
     y_test_proba = best_pipeline.predict_proba(X_test)[:, 1]
+    # Apply the threshold chosen on the validation set -- the test set was
+    # never seen during threshold selection, so this is a fair evaluation.
+    y_test_pred = (y_test_proba >= best_thresh).astype(int)
     test_metrics = {
         "accuracy": accuracy_score(y_test, y_test_pred),
         "precision": precision_score(y_test, y_test_pred, zero_division=0),
@@ -279,9 +344,15 @@ def main():
         "train_rows": int(X_train.shape[0]),
         "val_rows": int(X_val.shape[0]),
         "test_rows": int(X_test.shape[0]),
+        "decision_threshold": best_thresh,
+        "feature_engineering": [
+            "age_glucose (age * avg_glucose_level)",
+            "age_hyper (age * hypertension)",
+            "bmi_category (ordinal bin: 0=underweight,1=normal,2=overweight,3=obese)",
+        ],
         "tuning": {
             "search_method": "RandomizedSearchCV",
-            "n_iter": 25,
+            "n_iter": 30,
             "cv_folds": 5,
             "scoring": "roc_auc",
             "best_params": search.best_params_,
