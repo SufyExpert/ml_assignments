@@ -1,0 +1,72 @@
+{
+  "model_version": "1.0",
+  "algorithm": "RandomForestClassifier",
+  "training_date_utc": "2026-08-19T11:07:40.802241+00:00",
+  "random_seed": 42,
+  "target_column": "stroke",
+  "raw_feature_names": [
+    "age",
+    "avg_glucose_level",
+    "bmi",
+    "gender",
+    "ever_married",
+    "work_type",
+    "Residence_type",
+    "smoking_status",
+    "hypertension",
+    "heart_disease"
+  ],
+  "numerical_features": [
+    "age",
+    "avg_glucose_level",
+    "bmi"
+  ],
+  "categorical_features": [
+    "gender",
+    "ever_married",
+    "work_type",
+    "Residence_type",
+    "smoking_status",
+    "hypertension",
+    "heart_disease"
+  ],
+  "train_rows": 3066,
+  "val_rows": 1022,
+  "test_rows": 1022,
+  "tuning": {
+    "search_method": "RandomizedSearchCV",
+    "n_iter": 25,
+    "cv_folds": 5,
+    "scoring": "roc_auc",
+    "best_params": {
+      "classifier__class_weight": null,
+      "classifier__max_depth": 5,
+      "classifier__max_features": null,
+      "classifier__min_samples_leaf": 7,
+      "classifier__n_estimators": 430
+    },
+    "best_cv_roc_auc": 0.8376425357306545,
+    "tuning_time_sec": 100.812551015
+  },
+  "validation_metrics": {
+    "accuracy": 0.9510763209393346,
+    "precision": 0.0,
+    "recall": 0.0,
+    "f1": 0.0,
+    "roc_auc": 0.8449279835390946
+  },
+  "test_metrics": {
+    "accuracy": 0.9510763209393346,
+    "precision": 0.0,
+    "recall": 0.0,
+    "f1": 0.0,
+    "roc_auc": 0.8388477366255145
+  },
+  "package_versions": {
+    "python": "3.12.3",
+    "scikit-learn": "1.8.0",
+    "pandas": "3.0.2",
+    "numpy": "2.4.4",
+    "joblib": "1.5.3"
+  }
+}

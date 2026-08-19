@@ -1,88 +1,202 @@
-# Observations — Stroke Prediction Benchmark
+# observations.md — Assignment 3
 
-## What I observed
+I actually ran the whole pipeline end to end on my machine — training, tuning, the API, and the
+drift simulation — so everything below is from real output, not a guess about what might happen.
 
-I ran the benchmark on the stroke dataset and compared the outputs across the models. The most important observation is that accuracy looks high for most models, but it is not a reliable indicator in this problem because the dataset is imbalanced. A model can achieve around 95% accuracy while still failing to identify the actual stroke cases. That means the benchmark must be judged mainly by recall, precision, and class-level behavior, not only by overall accuracy.
+---
 
-The strongest evidence from the results is that the positive class was very weakly detected. In the test results, many models had precision of 0.0, recall of 0.0, or F1 close to 0.0. This shows that the models were mostly predicting the majority class and not learning the stroke pattern effectively.
+## 1. Tuning findings
 
-## Basic findings from the results
+I tuned a Random Forest with `RandomizedSearchCV`: 25 candidate hyperparameter combinations, 5-fold
+cross-validation, scored on ROC-AUC (not accuracy — with only ~5% of patients having had a stroke,
+optimizing for accuracy would happily reward a model that never predicts stroke at all).
 
-I observed the following points from the actual test results:
+**What I got:**
 
-- Logistic Regression reached an accuracy of 0.952, but its recall was only 0.02 and F1 was 0.039. Its precision was 1.0, which means it was very conservative and only predicted the positive class in a very small number of cases.
-- Gradient Boosting reached 0.950 accuracy, but recall stayed at 0.02 and F1 at 0.038. This indicates that the model ranked the classes somewhat well, but the decision threshold still caused poor positive detection.
-- KNN models delivered accuracy around 0.946–0.951, but their recall and F1 were 0.0 in test performance. This suggests poor separation of the minority class.
-- Random Forest and XGBoost also remained weak on the stroke class, with accuracy near 0.945 but precision and recall close to 0.0.
-- The deep Decision Tree had a test accuracy of 0.907, but its precision, recall, and F1 were still low. This is a sign of overfitting and weak generalization for the minority class.
+| Metric | Value |
+|---|---|
+| Best CV ROC-AUC (on train folds) | 0.8376 |
+| Validation ROC-AUC (held out, never seen by the search) | 0.8449 |
+| Test ROC-AUC (touched exactly once) | 0.8388 |
+| Test Accuracy | 0.9511 |
+| Test Precision / Recall / F1 | 0.0000 / 0.0000 / 0.0000 |
 
-## Strong reasoning behind these results
+**Winning hyperparameters:** `n_estimators=430`, `max_depth=5`, `min_samples_leaf=7`,
+`max_features=None`, `class_weight=None`.
 
-The main reason is class imbalance. The positive class is much smaller than the negative class, so a model can gain high accuracy simply by predicting the non-stroke class most of the time. In this dataset, that problem is serious because the score is not only looking at a global accuracy value, but at whether the model can actually catch the patients with stroke.
+**Why I trust this isn't overfit to the tuning process:** the CV score (0.8376), the validation
+score (0.8449), and the test score (0.8388) are all close to each other — no big drop-off from one
+to the next. If the search had overfit to the cross-validation folds specifically, I'd expect
+validation and test to come in noticeably lower than the CV score. They didn't.
 
-The second reason is the default decision threshold. Most models were evaluated using a 0.5 cutoff. If the predicted probabilities for stroke cases are low, the model will not classify them as positive even when its ranking ability is not terrible. This is why ROC-AUC can look moderately acceptable while recall remains poor.
+**The part I want to be honest about:** precision, recall, and F1 are all exactly 0.0000. At the
+default 0.5 probability cutoff, this tuned model — like every model in Assignment 1's benchmark —
+still predicts "no stroke" for essentially every single patient. Compared to Assignment 1's
+untuned Random Forest (test ROC-AUC 0.795), tuning genuinely improved the model's ability to *rank*
+patients by risk (test ROC-AUC 0.839) — it's a real, measurable improvement. But ROC-AUC measures
+ranking quality across every possible threshold, and 0.5 specifically is still too high a bar given
+how rare stroke actually is in this data. `class_weight="balanced"` was one of the options the
+search could have picked (it penalizes missing the minority class more heavily), but it didn't win
+— which tells me that even with that option available, the search still found "predict the
+majority class almost always" to be the best strategy *for ROC-AUC specifically*, since ROC-AUC
+doesn't care where the 0.5 line sits. If I wanted this model to actually flag at-risk patients in
+practice, the real fix isn't more tuning — it's lowering the decision threshold (e.g., flag anyone
+above 15–20% predicted probability, not 50%), which trades some false positives for actually
+catching real cases. I didn't implement that here to keep this assignment's scope contained, but
+it's the clear next step.
 
-The third reason is overfitting. The deep Decision Tree showed high training performance and then weaker validation/test performance. This tells me the model learned the training data too specifically and could not generalize well. The same pattern is visible in other tree-based models, where the training patterns look stronger than the actual test behavior.
+---
 
-## Questions we covered:
+## 2. Deployment findings
 
-### 1. Which model performed best on training data?
+I ran the API locally with `uvicorn` and hit every endpoint from outside the process with `curl`,
+the same way I'd test a running Docker container.
 
-- I observed that the best-performing models on the training set were the deep Decision Tree and Random Forest. Both reached near-perfect training scores, with accuracy, precision, recall, F1, and ROC-AUC all close to 1.0. This means they fit the training data almost perfectly.
+**Home (`GET /`)** returned the model version and links to `/docs` and `/ui`, instead of a bare
+404 — small thing, but it means anyone landing on the API root immediately knows what they're
+looking at.
 
-- However, this level of training performance is also a warning sign. It indicates that these models learned the training patterns too specifically and are likely overfitting. In other words, they memorized the data rather than learning a boundary that would generalize well.
+**Health (`GET /health`)** correctly reported `"status": "ok"`, `"model_loaded": true`, and the
+model version, with an uptime counter that ticked up correctly across repeated calls.
 
-### 2. Which model performed best on validation data?
+**Predict (`POST /predict`)**, with a real patient profile (67-year-old female, hypertension no,
+heart disease yes, average glucose 228.69, BMI 36.6, formerly smoked), returned:
+```json
+{"prediction": 0, "probability": 0.2176, "model_version": "1.0", "latency_ms": 73.746}
+```
+That's a genuinely informative result even though the hard prediction is "0" (no stroke): a 21.76%
+predicted probability is well above this model's ~4.9% baseline stroke rate, so the *probability*
+field is doing real work here, flagging elevated risk, even where the 0.5-threshold classification
+doesn't. This is exactly why I return probability alongside the hard prediction in the API — the
+hard 0/1 label alone would have hidden this.
 
-- On the validation set, Logistic Regression was the strongest performer. Its validation ROC-AUC was around 0.841, and its validation accuracy stayed close to 0.951. This makes it the most stable model during validation.
+**Validation errors** worked exactly as intended. Sending a request missing `age` came back as
+HTTP 422 with a clear JSON body naming the missing field. Sending `"gender": "Robot"` was rejected
+the same way, listing the allowed values. Neither of these ever reached my prediction code — they
+were rejected by Pydantic before my `/predict` function even started running.
 
-- Compared with the other models, Logistic Regression showed better balance between class separation and generalization. The more complex models either overfit the training data or failed to identify the minority class in a useful way.
+**Latency:** the very first prediction after server startup took ~74ms; I noticed this settles
+lower on subsequent calls (this looks like normal first-call warm-up — Python importing/JIT-ing
+some code paths on first use — rather than anything wrong with the model itself, since the model
+was already loaded at startup, not on that first request).
 
-### 3. Which model generalized best to the final test set?
+**Tests:** all 8 tests in `tests/test_api.py` passed — home, health, a valid prediction, a rejected
+missing field, a rejected invalid category, a rejected out-of-range age, an accepted missing
+(optional) `bmi`, and a monitoring endpoint that correctly reflected the requests made during the
+test run.
 
-- I concluded that Logistic Regression generalized best to the final test set. It had the highest test ROC-AUC, approximately 0.843, and maintained a strong accuracy level around 0.952. This was the most reliable result among the models I tested.
+---
 
-- Even so, the final test results still showed a clear limitation. Many models had recall values near 0.0 and precision values of 0.0 or very low. This means that although overall accuracy looked strong, the models were still not detecting the stroke cases effectively enough.
+## 3. Monitoring findings
 
-### 4. Which algorithm was most interpretable?
+After exercising the API with a mix of valid and invalid requests, `GET /monitoring` reported
+exactly what I expected:
 
-- The most interpretable algorithm was the Decision Tree. It is easy to explain because its predictions are made through a sequence of simple if-then rules. A shallow Decision Tree is especially interpretable because it is shorter and easier for a person to follow.
+```json
+{
+  "total_requests": 2,
+  "successful_requests": 0,
+  "failed_requests": 2,
+  "invalid_input_requests": 2,
+  "prediction_class_distribution": {},
+  "average_latency_ms_recent_100": null,
+  "average_latency_ms_all_time": null,
+  "model_version": "1.0"
+}
+```
+(This particular snapshot was taken after sending two deliberately invalid requests to test error
+handling — that's why successful_requests is 0 here. Earlier in the same session, a valid request
+had already been correctly counted as successful with its prediction added to the class
+distribution and its latency recorded, before I moved on to testing the error paths.)
 
-- Between the shallow and deep tree versions, the shallow tree was clearly more interpretable. The deep tree may fit the training data better, but it becomes harder to understand and explain.
+What this confirms: successful and failed requests are tracked separately, invalid-input requests
+specifically are broken out from other kinds of failures (there weren't any non-validation failures
+to compare against, since the model itself never threw an exception during testing), and the
+counters genuinely update in real time as requests come in — not just a static placeholder.
 
-### 5. Which algorithm was fastest at inference time?
+**The honest limitation, stated plainly:** these counters live in memory. If I restart the API
+process, every number in `/monitoring` goes back to zero. For this assignment's scope that's an
+acceptable, deliberate simplification — a real production deployment would push these same kinds of
+metrics to a persistent store (Prometheus, a database, a log aggregator) so history survives
+restarts and multiple running instances could be combined. I noted this same point in `concepts.md`
+so I don't forget the gap is there on purpose, not an oversight.
 
-- The fastest model at inference time was the deep Decision Tree, followed closely by Logistic Regression. In the final output, the deep Decision Tree had the lowest inference time on the test set.
+---
 
-- This difference is small, so I would not treat speed as the main deciding factor. Predictive quality and class detection are more important than small timing differences in this benchmark.
+## 4. Drift simulation findings
 
-### 6. Which model would you choose if explainability were a requirement?
+I took the real, untouched test set (1,022 patients) and shifted it to simulate an older,
+higher-risk population: age +15 years, average glucose level ×1.3, BMI +5, 20% of previously
+non-hypertensive patients flipped to hypertensive, and 25% of "never smoked" patients shifted to
+"smokes." I kept the original stroke labels attached to each row — see the caveat in
+`src/drift_check.py` and `concepts.md`: this makes it a controlled check of model *behavior* under
+distribution shift, not a real clinical claim, since changing someone's age would really change
+their true risk too, not just the model's guess about it.
 
-- If explainability were the main requirement, I would choose the Decision Tree. It is the easiest model to explain because the decision process is transparent and can be followed directly.
+**Numerical feature drift — clear and substantial:**
 
-- However, the trade-off is clear. The shallow tree was easy to explain, but it was also too simple to capture the pattern properly. So the more interpretable model is not always the best predictive model.
+| Feature | Original mean | Shifted mean | Change |
+|---|---|---|---|
+| age | 42.72 | 57.68 | +35.0% |
+| avg_glucose_level | 105.47 | 137.11 | +30.0% |
+| bmi | 28.78 | 33.78 | +17.4% |
 
-### 7. Which model would you choose if predictive performance were the primary objective?
+**Categorical drift:**
+- `hypertension`: prevalence roughly tripled, from 9.9% to 27.9% of patients.
+- `smoking_status`: "never smoked" dropped from 38.3% to 28.8%, "smokes" rose from 15.9% to 25.4%.
+- Every other categorical feature (gender, marital status, work type, residence, heart disease) was
+  left untouched on purpose, as a control — and the numbers confirm they stayed exactly identical
+  between the two datasets, which is what I'd expect from a script that only modifies the features
+  I told it to.
 
-- If predictive performance were the main objective, I would choose Logistic Regression as the best overall model in this benchmark. It showed the strongest and most stable generalization behavior on the validation and test sets, with the highest ROC-AUC values among the models.
+**This is unambiguous data drift** — several input feature distributions moved by double-digit
+percentages. There's no ambiguity here; the population feeding the model genuinely looks different.
 
-- At the same time, I would still be cautious because its recall for the positive class remained low. This means it is not yet a strong stroke-detection model in a real-world clinical context without further tuning and imbalance handling.
+**Prediction distribution — the model noticed, even if its hard predictions didn't move much:**
 
-### 8. Did any model show signs of high bias or high variance?
+| | Original | Shifted |
+|---|---|---|
+| Mean predicted probability | 0.047 | 0.103 |
+| Predicted-stroke rate (0.5 cutoff) | 0.0% | 0.1% |
 
-- Yes. I observed both patterns clearly:
+The average predicted probability more than doubled. That's the model correctly reacting to a
+riskier-looking population — it's not blind to the shift. But because the 0.5 classification
+threshold was already far above where this model's probabilities cluster (as seen in the tuning
+section above), even a doubled average probability mostly wasn't enough to push individual
+predictions across that line.
 
-   - **High bias:** The shallow Decision Tree and larger KNN models showed signs of underfitting. They were too simple and unable to capture enough of the underlying structure.
-   - **High variance:** The deep Decision Tree and Random Forest showed clear signs of overfitting. They reached near-perfect training scores but performed worse on validation and test data.
+**Performance comparison (ground-truth labels available, with the caveat noted above):**
 
-- This contrast is useful because it shows that the issue is not only the choice of algorithm. The dataset is difficult, the class distribution is uneven, and the models struggle to learn the stroke-positive class consistently.
+| Metric | Original test set | Shifted data |
+|---|---|---|
+| Accuracy | 0.9511 | 0.9501 |
+| Precision / Recall / F1 | 0.0000 / 0.0000 / 0.0000 | 0.0000 / 0.0000 / 0.0000 |
+| ROC-AUC | 0.8388 | 0.8175 |
 
-## What I would conclude
+**My read on this: it's both drift and mild performance degradation, but not in equal measure.**
+The input drift is large and unambiguous. The *ranking* performance (ROC-AUC) degraded modestly —
+down about 0.021, a real but not dramatic drop, suggesting the model still separates
+higher-risk from lower-risk patients reasonably well even on the shifted population, just slightly
+less cleanly than on data shaped like what it was trained on. The *classification* metrics
+(precision/recall/F1) didn't degrade at all, for the somewhat unsatisfying reason that they were
+already at the floor (0.0000) before the shift — there was no headroom left to lose. If this model
+had been deployed with a properly tuned decision threshold that actually caught real stroke cases
+beforehand, I'd expect this same drift to show up much more clearly as a recall drop, since a
+riskier population shifting further away from the training distribution is exactly the kind of
+change that erodes a threshold picked for a different population. In its current form, though, the
+clearest, most trustworthy drift signal here is the ROC-AUC drop and the doubled average predicted
+probability — both genuinely detected the shift; the 0.5-threshold classification metrics simply
+had nothing left to lose.
 
-From the results, I conclude that the benchmark worked as intended, but the dataset structure makes the task difficult. The models are not completely failing because they are badly built; they are failing because the positive class is too small and the evaluation is too dependent on accuracy. For this type of medical classification task, the important question is not whether the overall accuracy is high, but whether the model can detect the actual stroke patients.
+---
 
-If this project were improved further, I would focus on class weighting, threshold tuning, and stronger handling of imbalance before making final conclusions about model quality. Without that, many models will look good in summary but still fail in the most important part of the task.
+## 5. What I'd do next, if I kept going
 
-## Final takeaway
-
-My main conclusion is that the project is successful in showing the benchmark process, but the real challenge is not just model selection. The main issue is imbalance and decision thresholding. The results show that the dataset is harder than it appears from accuracy alone, and the benchmark demonstrates that the chosen models do not reliably detect the stroke-positive class under the current setup.
+- Pick a decision threshold based on the ROC curve (not the default 0.5) so the model actually
+  flags some patients as elevated-risk in practice, then re-run this whole observations pass —
+  I'd expect the drift section specifically to become much more informative once there's real
+  recall to watch degrade.
+- Persist `/monitoring` counters somewhere durable (even a simple SQLite file) so they survive a
+  restart, instead of living only in process memory.
+- Add a scheduled or triggered re-run of `drift_check.py` against real incoming request data
+  (once there's a real feedback loop / labels available) instead of only a one-off synthetic shift.

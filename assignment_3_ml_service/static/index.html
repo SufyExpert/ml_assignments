@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stroke Risk Prediction Service</title>
+<style>
+  :root {
+    --bg: #f4f6fa;
+    --card-bg: #ffffff;
+    --primary: #2f6fed;
+    --primary-dark: #234fb0;
+    --text: #1f2937;
+    --muted: #6b7280;
+    --success: #16a34a;
+    --danger: #dc2626;
+    --border: #e5e7eb;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    justify-content: center;
+    padding: 40px 16px;
+  }
+  .container {
+    width: 100%;
+    max-width: 640px;
+  }
+  .card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 32px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  }
+  h1 {
+    font-size: 1.5rem;
+    margin: 0 0 6px 0;
+  }
+  .subtitle {
+    color: var(--muted);
+    margin: 0 0 28px 0;
+    font-size: 0.95rem;
+  }
+  .btn {
+    display: inline-block;
+    width: 100%;
+    padding: 14px 18px;
+    margin-bottom: 14px;
+    border: none;
+    border-radius: 10px;
+    background: var(--primary);
+    color: white;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    text-align: center;
+    transition: background 0.15s ease;
+  }
+  .btn:hover { background: var(--primary-dark); }
+  .btn.secondary {
+    background: white;
+    color: var(--primary);
+    border: 1.5px solid var(--primary);
+  }
+  .btn.secondary:hover { background: #eef3ff; }
+  .btn.small {
+    width: auto;
+    padding: 10px 18px;
+    font-size: 0.9rem;
+  }
+  .view { display: none; }
+  .view.active { display: block; }
+
+  .field {
+    margin-bottom: 16px;
+  }
+  label {
+    display: block;
+    font-weight: 600;
+    font-size: 0.85rem;
+    margin-bottom: 6px;
+    color: var(--text);
+  }
+  .hint {
+    font-size: 0.78rem;
+    color: var(--muted);
+    margin-top: 4px;
+  }
+  input, select {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 0.95rem;
+    background: #fafafa;
+  }
+  input:focus, select:focus {
+    outline: none;
+    border-color: var(--primary);
+    background: white;
+  }
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0 16px;
+  }
+  .result-box {
+    margin-top: 20px;
+    padding: 20px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: #fafbfc;
+  }
+  .result-box.error {
+    background: #fef2f2;
+    border-color: #fecaca;
+    color: var(--danger);
+  }
+  .result-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 0;
+    font-size: 0.95rem;
+    border-bottom: 1px dashed var(--border);
+  }
+  .result-row:last-child { border-bottom: none; }
+  .result-row .label { color: var(--muted); }
+  .result-row .value { font-weight: 600; }
+  .badge {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 999px;
+    font-weight: 700;
+    font-size: 0.85rem;
+  }
+  .badge.low { background: #dcfce7; color: var(--success); }
+  .badge.high { background: #fee2e2; color: var(--danger); }
+  .loading { color: var(--muted); font-style: italic; }
+  .top-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+  }
+  .top-bar h2 { margin: 0; font-size: 1.2rem; }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- ===================== HOME VIEW ===================== -->
+  <div id="view-home" class="view active">
+    <div class="card">
+      <h1>Stroke Risk Prediction Service</h1>
+      <p class="subtitle">
+        This page talks to a small ML API running on this computer. Pick one
+        of the two options below -- no technical knowledge needed.
+      </p>
+      <button class="btn" onclick="showView('predict')">🩺 Make a Prediction</button>
+      <button class="btn secondary" onclick="showView('health'); checkHealth();">✅ Check Service Health</button>
+    </div>
+  </div>
+
+  <!-- ===================== HEALTH VIEW ===================== -->
+  <div id="view-health" class="view">
+    <div class="card">
+      <div class="top-bar">
+        <h2>Service Health</h2>
+        <button class="btn small secondary" onclick="showView('home')">&larr; Back</button>
+      </div>
+      <p class="subtitle">This calls <code>GET /health</code> on the API and shows what it reports.</p>
+      <div id="health-result" class="loading">Checking...</div>
+      <button class="btn secondary" style="margin-top:16px" onclick="checkHealth()">Check Again</button>
+    </div>
+  </div>
+
+  <!-- ===================== PREDICT VIEW ===================== -->
+  <div id="view-predict" class="view">
+    <div class="card">
+      <div class="top-bar">
+        <h2>Make a Prediction</h2>
+        <button class="btn small secondary" onclick="showView('home')">&larr; Back</button>
+      </div>
+      <p class="subtitle">
+        Fill in the patient details below. This calls <code>POST /predict</code>
+        and shows the model's result.
+      </p>
+
+      <form id="predict-form" onsubmit="submitPrediction(event)">
+        <div class="grid-2">
+          <div class="field">
+            <label>Gender</label>
+            <select name="gender" required>
+              <option value="Female">Female</option>
+              <option value="Male">Male</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Age (years)</label>
+            <input type="number" name="age" min="0" max="120" step="1" value="67" required>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="field">
+            <label>Hypertension?</label>
+            <select name="hypertension" required>
+              <option value="0">No</option>
+              <option value="1">Yes</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Heart Disease?</label>
+            <select name="heart_disease" required>
+              <option value="0">No</option>
+              <option value="1">Yes</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="field">
+            <label>Ever Married?</label>
+            <select name="ever_married" required>
+              <option value="Yes">Yes</option>
+              <option value="No">No</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Residence Type</label>
+            <select name="Residence_type" required>
+              <option value="Urban">Urban</option>
+              <option value="Rural">Rural</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="field">
+          <label>Work Type</label>
+          <select name="work_type" required>
+            <option value="Private">Private</option>
+            <option value="Self-employed">Self-employed</option>
+            <option value="Govt_job">Government job</option>
+            <option value="children">Child (not working)</option>
+            <option value="Never_worked">Never worked</option>
+          </select>
+        </div>
+
+        <div class="grid-2">
+          <div class="field">
+            <label>Average Glucose Level (mg/dL)</label>
+            <input type="number" name="avg_glucose_level" min="0" max="400" step="0.1" value="228.69" required>
+          </div>
+          <div class="field">
+            <label>BMI <span class="hint">(optional)</span></label>
+            <input type="number" name="bmi" min="0" max="100" step="0.1" value="36.6">
+          </div>
+        </div>
+
+        <div class="field">
+          <label>Smoking Status</label>
+          <select name="smoking_status" required>
+            <option value="formerly smoked">Formerly smoked</option>
+            <option value="never smoked">Never smoked</option>
+            <option value="smokes">Currently smokes</option>
+            <option value="Unknown">Unknown</option>
+          </select>
+        </div>
+
+        <button type="submit" class="btn">Predict Stroke Risk</button>
+      </form>
+
+      <div id="predict-result"></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  const API_BASE = window.location.origin;
+
+  function showView(name) {
+    document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
+    document.getElementById("view-" + name).classList.add("active");
+  }
+
+  async function checkHealth() {
+    const box = document.getElementById("health-result");
+    box.className = "loading";
+    box.textContent = "Checking...";
+    try {
+      const res = await fetch(API_BASE + "/health");
+      const data = await res.json();
+      box.className = "result-box";
+      box.innerHTML = `
+        <div class="result-row"><span class="label">Status</span><span class="value">${data.status}</span></div>
+        <div class="result-row"><span class="label">Model loaded</span><span class="value">${data.model_loaded}</span></div>
+        <div class="result-row"><span class="label">Model version</span><span class="value">${data.model_version ?? "n/a"}</span></div>
+        <div class="result-row"><span class="label">Uptime</span><span class="value">${data.uptime_seconds}s</span></div>
+      `;
+    } catch (err) {
+      box.className = "result-box error";
+      box.textContent = "Could not reach the API: " + err;
+    }
+  }
+
+  async function submitPrediction(event) {
+    event.preventDefault();
+    const form = document.getElementById("predict-form");
+    const resultDiv = document.getElementById("predict-result");
+    resultDiv.innerHTML = `<div class="result-box loading">Predicting...</div>`;
+
+    const formData = new FormData(form);
+    const payload = {
+      gender: formData.get("gender"),
+      age: parseFloat(formData.get("age")),
+      hypertension: parseInt(formData.get("hypertension")),
+      heart_disease: parseInt(formData.get("heart_disease")),
+      ever_married: formData.get("ever_married"),
+      work_type: formData.get("work_type"),
+      Residence_type: formData.get("Residence_type"),
+      avg_glucose_level: parseFloat(formData.get("avg_glucose_level")),
+      bmi: formData.get("bmi") ? parseFloat(formData.get("bmi")) : null,
+      smoking_status: formData.get("smoking_status"),
+    };
+
+    try {
+      const res = await fetch(API_BASE + "/predict", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        resultDiv.innerHTML = `
+          <div class="result-box error">
+            <strong>Request was rejected (${res.status})</strong>
+            <div style="margin-top:8px; font-size:0.85rem;">${data.message || JSON.stringify(data)}</div>
+          </div>`;
+        return;
+      }
+
+      const badgeClass = data.prediction === 1 ? "high" : "low";
+      const badgeText = data.prediction === 1 ? "Higher Risk" : "Lower Risk";
+      const pct = (data.probability * 100).toFixed(1);
+
+      resultDiv.innerHTML = `
+        <div class="result-box">
+          <div style="text-align:center; margin-bottom:14px;">
+            <span class="badge ${badgeClass}">${badgeText}</span>
+          </div>
+          <div class="result-row"><span class="label">Predicted class</span><span class="value">${data.prediction} (${data.prediction === 1 ? "stroke" : "no stroke"})</span></div>
+          <div class="result-row"><span class="label">Predicted probability</span><span class="value">${pct}%</span></div>
+          <div class="result-row"><span class="label">Model version</span><span class="value">${data.model_version}</span></div>
+          <div class="result-row"><span class="label">Latency</span><span class="value">${data.latency_ms} ms</span></div>
+          <p class="hint" style="margin-top:12px;">
+            This is a probability from a demonstration model, not a medical
+            diagnosis -- see observations.md for this model's real accuracy
+            and limitations.
+          </p>
+        </div>`;
+    } catch (err) {
+      resultDiv.innerHTML = `<div class="result-box error">Could not reach the API: ${err}</div>`;
+    }
+  }
+</script>
+</body>
+</html>

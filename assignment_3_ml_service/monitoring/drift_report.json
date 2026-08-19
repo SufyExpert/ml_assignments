@@ -1,0 +1,130 @@
+{
+  "note": "The shifted dataset reuses the original test set's stroke labels unchanged -- only feature values were shifted. This is a controlled check of how the model REACTS to distribution shift, not a claim about real patient outcomes. See observations.md for the full read.",
+  "numerical_feature_comparison": {
+    "age": {
+      "original_mean": 42.72,
+      "shifted_mean": 57.679,
+      "original_std": 22.68,
+      "shifted_std": 22.611,
+      "mean_shift_pct": 35.0
+    },
+    "avg_glucose_level": {
+      "original_mean": 105.47,
+      "shifted_mean": 137.111,
+      "original_std": 45.395,
+      "shifted_std": 59.013,
+      "mean_shift_pct": 30.0
+    },
+    "bmi": {
+      "original_mean": 28.779,
+      "shifted_mean": 33.779,
+      "original_std": 7.556,
+      "shifted_std": 7.556,
+      "mean_shift_pct": 17.4
+    }
+  },
+  "categorical_feature_comparison": {
+    "gender": {
+      "original_pct": {
+        "Female": 58.6,
+        "Male": 41.4
+      },
+      "shifted_pct": {
+        "Female": 58.6,
+        "Male": 41.4
+      }
+    },
+    "ever_married": {
+      "original_pct": {
+        "Yes": 63.9,
+        "No": 36.1
+      },
+      "shifted_pct": {
+        "Yes": 63.9,
+        "No": 36.1
+      }
+    },
+    "work_type": {
+      "original_pct": {
+        "Private": 58.0,
+        "Self-employed": 14.9,
+        "Govt_job": 13.2,
+        "children": 13.0,
+        "Never_worked": 0.9
+      },
+      "shifted_pct": {
+        "Private": 58.0,
+        "Self-employed": 14.9,
+        "Govt_job": 13.2,
+        "children": 13.0,
+        "Never_worked": 0.9
+      }
+    },
+    "Residence_type": {
+      "original_pct": {
+        "Urban": 51.6,
+        "Rural": 48.4
+      },
+      "shifted_pct": {
+        "Urban": 51.6,
+        "Rural": 48.4
+      }
+    },
+    "smoking_status": {
+      "original_pct": {
+        "never smoked": 38.3,
+        "Unknown": 29.1,
+        "formerly smoked": 16.7,
+        "smokes": 15.9
+      },
+      "shifted_pct": {
+        "Unknown": 29.1,
+        "never smoked": 28.8,
+        "smokes": 25.4,
+        "formerly smoked": 16.7
+      }
+    },
+    "hypertension": {
+      "original_pct": {
+        "0": 90.1,
+        "1": 9.9
+      },
+      "shifted_pct": {
+        "0": 72.1,
+        "1": 27.9
+      }
+    },
+    "heart_disease": {
+      "original_pct": {
+        "0": 94.6,
+        "1": 5.4
+      },
+      "shifted_pct": {
+        "0": 94.6,
+        "1": 5.4
+      }
+    }
+  },
+  "prediction_distribution_comparison": {
+    "original_predicted_stroke_rate": 0.0,
+    "shifted_predicted_stroke_rate": 0.001,
+    "original_mean_probability": 0.047,
+    "shifted_mean_probability": 0.1032
+  },
+  "performance_comparison": {
+    "original_test_set": {
+      "accuracy": 0.9511,
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "roc_auc": 0.8388
+    },
+    "shifted_data": {
+      "accuracy": 0.9501,
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "roc_auc": 0.8175
+    }
+  }
+}

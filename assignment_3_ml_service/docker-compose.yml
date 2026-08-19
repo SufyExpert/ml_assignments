@@ -1,0 +1,27 @@
+# docker-compose.yml
+# ------------------
+# Lets me build and run the whole service with one command instead of
+# separately running `docker build` then `docker run` with a long list of
+# flags. See README.md for the exact commands.
+
+services:
+  stroke-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: stroke-risk-api:1.0
+    container_name: stroke-risk-api
+    ports:
+      - "8000:8000"
+    environment:
+      # No secrets here on purpose -- this model doesn't need any API keys
+      # or credentials to run. This variable is just a placeholder showing
+      # where environment-based config would go if the service grew one.
+      - APP_ENV=local
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
